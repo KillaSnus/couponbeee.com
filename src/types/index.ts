@@ -34,12 +34,26 @@ export interface Category {
   couponCount?: number;
 }
 
+export interface CustomerPurchaseProof {
+  id: string;
+  merchantId: string;
+  userName: string;
+  userLocation?: string;
+  verifiedOrder: boolean;
+  couponCodeUsed?: string;
+  savingsAmount: string;
+  imageUrl: string;
+  date: string;
+  comment?: string;
+}
+
 export interface Merchant {
   id: string;
   name: string;
   slug: string;
   domain: string;
   logoUrl?: string;
+  bannerUrl?: string;
   shortDesc: string;
   aboutHtml: string;
   categoryIds: string[];
@@ -52,6 +66,17 @@ export interface Merchant {
   seoDescription?: string;
   canonicalUrl?: string;
   howToUseSteps: string[];
+  savingsTips?: string[];
+  policyInfo?: {
+    returnDays?: number | string;
+    freeShippingThreshold?: string;
+    priceMatch?: boolean;
+    studentDiscount?: string;
+    militaryDiscount?: string;
+  };
+  rating?: number;
+  ratingCount?: number;
+  purchaseProofs?: CustomerPurchaseProof[];
   faqs: { question: string; answer: string }[];
   createdAt: string;
   updatedAt: string;

@@ -79,6 +79,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     name: '',
     slug: '',
     domain: '',
+    logoUrl: '',
+    bannerUrl: '',
     shortDesc: '',
     aboutHtml: '',
     categoryIds: [] as string[],
@@ -99,6 +101,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         name: merchant.name,
         slug: merchant.slug,
         domain: merchant.domain,
+        logoUrl: merchant.logoUrl || '',
+        bannerUrl: merchant.bannerUrl || '',
         shortDesc: merchant.shortDesc,
         aboutHtml: merchant.aboutHtml,
         categoryIds: merchant.categoryIds,
@@ -117,6 +121,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
         name: '',
         slug: '',
         domain: '',
+        logoUrl: '',
+        bannerUrl: '',
         shortDesc: '',
         aboutHtml: '',
         categoryIds: [categories[0]?.id || 'cat-hosting'],
@@ -1264,7 +1270,7 @@ ByteCraft Tools,Flash Pro License Special,BYTEFLASH10,Instant $10 off perpetual 
                     {auditLogs.map(log => (
                       <tr key={log.id}>
                         <td className="p-3 tabular-nums text-stone-500 whitespace-nowrap">
-                          {new Date(log.createdAt).toLocaleString()}
+                          {new Date(log.createdAt || log.timestamp || Date.now()).toLocaleString()}
                         </td>
                         <td className="p-3 font-semibold text-stone-900 whitespace-nowrap">
                           {log.adminName}
@@ -1438,6 +1444,42 @@ ByteCraft Tools,Flash Pro License Special,BYTEFLASH10,Instant $10 off perpetual 
                   required
                   className="w-full p-2 border border-stone-300 rounded-lg"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-stone-50 rounded-xl border border-stone-200">
+                <div>
+                  <label className="font-semibold text-stone-700 block mb-1">Store Logo URL</label>
+                  <input
+                    type="url"
+                    value={merchantForm.logoUrl}
+                    onChange={e => setMerchantForm({ ...merchantForm, logoUrl: e.target.value })}
+                    placeholder="https://.../logo.png"
+                    className="w-full p-2 border border-stone-300 rounded-lg text-[11px] font-mono"
+                  />
+                  {merchantForm.logoUrl && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-[10px] text-stone-500">Preview:</span>
+                      <img src={merchantForm.logoUrl} alt="Logo preview" className="w-8 h-8 object-contain rounded border border-stone-200 bg-white" />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="font-semibold text-stone-700 block mb-1">Store Hero Banner URL</label>
+                  <input
+                    type="url"
+                    value={merchantForm.bannerUrl}
+                    onChange={e => setMerchantForm({ ...merchantForm, bannerUrl: e.target.value })}
+                    placeholder="https://images.unsplash.com/..."
+                    className="w-full p-2 border border-stone-300 rounded-lg text-[11px] font-mono"
+                  />
+                  {merchantForm.bannerUrl && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-[10px] text-stone-500">Preview:</span>
+                      <img src={merchantForm.bannerUrl} alt="Banner preview" className="w-16 h-8 object-cover rounded border border-stone-200" />
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>

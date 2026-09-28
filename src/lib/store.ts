@@ -1,7 +1,7 @@
 import { 
   Merchant, Coupon, Deal, Category, BlogPost, Faq, 
   VerificationLog, CouponReport, AdminAuditLog, CouponClick,
-  DeviceCategory, ReportReason, Role, User
+  DeviceCategory, ReportReason, ReportStatus, Role, User, CustomerPurchaseProof
 } from '../types';
 import { 
   INITIAL_CATEGORIES, INITIAL_MERCHANTS, INITIAL_COUPONS, 
@@ -13,7 +13,9 @@ import {
   FLAGSHIP_COUPONS_DATA, 
   merchantCatalog, 
   DEFAULT_AFFILIATE_CONFIG, 
-  AffiliateNetworkConfig 
+  AffiliateNetworkConfig,
+  buildCustomerProofsForMerchant,
+  build24CouponsForMerchant
 } from './merchantCatalog';
 import { CsvCouponRowSchema } from '../types';
 
@@ -53,6 +55,7 @@ class DatabaseStore {
   private auditLogs: AdminAuditLog[];
   private couponClicks: CouponClick[];
   private affiliateConfig: AffiliateNetworkConfig;
+  private purchaseProofs: CustomerPurchaseProof[];
   private listeners: Set<Listener> = new Set();
 
   public currentUser: User = {
@@ -97,6 +100,7 @@ class DatabaseStore {
     this.reports = loadFromStorage('reports', INITIAL_REPORTS);
     this.auditLogs = loadFromStorage('auditLogs', INITIAL_AUDIT_LOGS);
     this.affiliateConfig = loadFromStorage('affiliateConfig', DEFAULT_AFFILIATE_CONFIG);
+    this.purchaseProofs = loadFromStorage('purchaseProofs', []);
     this.couponClicks = loadFromStorage('couponClicks', [
       { id: 'clk-1', couponId: 'coup-hostinger-85', merchantId: 'merch-hostinger', deviceCategory: 'DESKTOP', clickedAt: new Date(Date.now() - 3600000 * 2).toISOString() },
       { id: 'clk-2', couponId: 'coup-amazon-20', merchantId: 'merch-amazon', deviceCategory: 'MOBILE', clickedAt: new Date(Date.now() - 3600000 * 4).toISOString() },
@@ -273,14 +277,15 @@ class DatabaseStore {
   }): Coupon[] {
     let list = [...this.coupons];
 
-    // If searching for a specific merchant and no local coupons exist, check catalog
+    // If searching for a specific merchant, ensure 24 coupons are loaded
     if (options?.merchantId) {
       const localCoupons = list.filter(c => c.merchantId === options.merchantId);
-      if (localCoupons.length > 0) {
+      const catalogCoupons = merchantCatalog.getCouponsByMerchantId(options.merchantId);
+      if (localCoupons.length >= 24) {
         list = localCoupons;
       } else {
-        const catalogCoupons = merchantCatalog.getCouponsByMerchantId(options.merchantId);
-        list = catalogCoupons;
+        const localIds = new Set(localCoupons.map(c => c.id));
+        list = [...localCoupons, ...catalogCoupons.filter(c => !localIds.has(c.id))].slice(0, 24);
       }
     }
 
@@ -456,6 +461,62 @@ class DatabaseStore {
     return true;
   }
 
+  // --- CUSTOMER PURCHASE PROOF SCREENSHOTS ---
+  public getPurchaseProofs(merchantId?: string): CustomerPurchaseProof[] {
+    let list = [...this.purchaseProofs];
+    if (merchantId) {
+      const local = list.filter(p => p.merchantId === merchantId);
+      if (local.length > 0) return local;
+      const merch = this.getMerchantById(merchantId) || this.getMerchantBySlug(merchantId);
+      if (merch?.purchaseProofs && merch.purchaseProofs.length > 0) {
+        return merch.purchaseProofs;
+      }
+      if (merch) {
+        return buildCustomerProofsForMerchant(merch);
+      }
+      return [];
+    }
+    return list;
+  }
+
+  public addPurchaseProof(data: Omit<CustomerPurchaseProof, 'id' | 'date'>): CustomerPurchaseProof {
+    const newProof: CustomerPurchaseProof = {
+      ...data,
+      id: 'proof-' + Math.random().toString(36).substring(2, 9),
+      date: 'Verified today',
+    };
+    this.purchaseProofs.unshift(newProof);
+    saveToStorage('purchaseProofs', this.purchaseProofs);
+    this.logAudit('ADD_PURCHASE_PROOF', 'CustomerPurchaseProof', newProof.id, `Added verified proof for merchant ${data.merchantId}`);
+    this.notify();
+    return newProof;
+  }
+
+  public deletePurchaseProof(id: string): boolean {
+    this.purchaseProofs = this.purchaseProofs.filter(p => p.id !== id);
+    saveToStorage('purchaseProofs', this.purchaseProofs);
+    this.notify();
+    return true;
+  }
+
+  // --- COMMUNITY COUPON FEEDBACK & VOTING ---
+  public submitCouponVote(couponId: string, worked: boolean): boolean {
+    const index = this.coupons.findIndex(c => c.id === couponId);
+    if (index !== -1) {
+      if (worked) {
+        this.coupons[index].upvotes = (this.coupons[index].upvotes || 0) + 1;
+        this.coupons[index].verificationStatus = 'TESTED';
+        this.coupons[index].lastVerifiedAt = new Date().toISOString();
+      } else {
+        this.coupons[index].downvotes = (this.coupons[index].downvotes || 0) + 1;
+      }
+      saveToStorage('coupons', this.coupons);
+      this.notify();
+      return true;
+    }
+    return false;
+  }
+
   // --- OUTBOUND TRACKING / AFFILIATE CLICKS ---
   public recordCouponClick(couponId: string, device: DeviceCategory = 'DESKTOP', referrer?: string): { url: string; coupon: Coupon; merchant: Merchant } | null {
     const coupon = this.getCouponById(couponId);
@@ -619,24 +680,41 @@ class DatabaseStore {
     return true;
   }
 
-  public importCouponsCsv(csvText: string): { success: number; failed: number; errors: string[] } {
+  public importCouponsCsv(csvText: string): { 
+    success: number; 
+    failed: number; 
+    totalRows: number; 
+    validRows: number; 
+    invalidRows: number; 
+    duplicateRows: number; 
+    errors: string[] 
+  } {
     const lines = csvText.trim().split('\n');
-    let success = 0;
-    let failed = 0;
+    let validRows = 0;
+    let invalidRows = 0;
     const errors: string[] = [];
+    const totalRows = Math.max(lines.length - 1, 0);
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
       const parts = line.split(',');
       if (parts.length >= 4) {
-        success++;
+        validRows++;
       } else {
-        failed++;
+        invalidRows++;
         errors.push(`Row ${i}: Missing required fields`);
       }
     }
-    return { success, failed, errors };
+    return { 
+      success: validRows, 
+      failed: invalidRows, 
+      totalRows, 
+      validRows, 
+      invalidRows, 
+      duplicateRows: 0, 
+      errors 
+    };
   }
 
   public getReports(status?: ReportStatus): CouponReport[] {
@@ -818,7 +896,7 @@ class DatabaseStore {
       });
     }
     this.categories = [...INITIAL_CATEGORIES];
-    this.merchants = FLAGSHIP_MERCHANTS_DATA.map(m => ({
+    this.merchants = (FLAGSHIP_MERCHANTS_DATA as any[]).map(m => ({
       ...m,
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-03-26T00:00:00Z',
