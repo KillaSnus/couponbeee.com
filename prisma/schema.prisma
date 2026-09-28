@@ -1,0 +1,354 @@
+// CouponBeee Prisma Schema
+// Database schema supporting high-scale coupon, deal, and merchant discovery
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  EDITOR
+  USER
+}
+
+enum CouponStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  PAUSED
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  TESTED
+  REPORTED
+  EXPIRED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+  BOGO
+  FREE_TRIAL
+}
+
+enum DeviceCategory {
+  DESKTOP
+  MOBILE
+  TABLET
+  OTHER
+}
+
+enum ReportReason {
+  CODE_DOES_NOT_WORK
+  EXPIRED
+  WRONG_DISCOUNT
+  MISLEADING_INFO
+  INCORRECT_DESTINATION
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+model User {
+  id              String            @id @default(cuid())
+  email           String            @unique
+  name            String?
+  passwordHash    String
+  role            Role              @default(USER)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  verifications   VerificationLog[]
+  auditLogs       AdminAuditLog[]
+  blogPosts       BlogPost[]
+
+  @@index([email])
+}
+
+model Category {
+  id              String             @id @default(cuid())
+  name            String             @unique
+  slug            String             @unique
+  description     String?
+  iconName        String?
+  isFeatured      Boolean            @default(false)
+  sortOrder       Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  merchants       MerchantCategory[]
+  coupons         Coupon[]
+  deals           Deal[]
+
+  @@index([slug])
+}
+
+model Merchant {
+  id              String             @id @default(cuid())
+  name            String             @unique
+  slug            String             @unique
+  domain          String
+  logoUrl         String?
+  shortDesc       String
+  aboutHtml       String?
+  affiliateUrl    String
+  landingUrl      String
+  status          String             @default("ACTIVE") // ACTIVE, PAUSED, DRAFT
+  isPopular       Boolean            @default(false)
+  isTrending      Boolean            @default(false)
+  seoTitle        String?
+  seoDescription  String?
+  canonicalUrl    String?
+  howToUseSteps   String?            // JSON stringified steps
+  faqData         String?            // JSON stringified merchant FAQs
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  categories      MerchantCategory[]
+  coupons         Coupon[]
+  deals           Deal[]
+  affiliateLinks  AffiliateLink[]
+  couponClicks    CouponClick[]
+  dealClicks      DealClick[]
+
+  @@index([slug])
+  @@index([domain])
+  @@index([isPopular])
+}
+
+model MerchantCategory {
+  merchantId  String
+  categoryId  String
+  merchant    Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([merchantId, categoryId])
+}
+
+model Coupon {
+  id                  String             @id @default(cuid())
+  merchantId          String
+  categoryId          String?
+  title               String
+  slug                String             @unique
+  code                String?            // Nullable for direct link deals
+  description         String
+  discountType        DiscountType       @default(PERCENTAGE)
+  discountValue       String             // e.g. "25%", "$50", "Free Express Shipping"
+  affiliateUrl        String
+  landingUrl          String
+  startDate           DateTime           @default(now())
+  expiryDate          DateTime?
+  status              CouponStatus       @default(ACTIVE)
+  verificationStatus  VerificationStatus @default(UNVERIFIED)
+  lastVerifiedAt      DateTime?
+  verificationMethod  String?            // e.g. "Admin Checkout Test", "API Synced"
+  clickCount          Int                @default(0)
+  terms               String?
+  isEditorsPick       Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  merchant            Merchant           @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  category            Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  clicks              CouponClick[]
+  reports             CouponReport[]
+  verificationLogs    VerificationLog[]
+
+  @@index([merchantId])
+  @@index([status])
+  @@index([verificationStatus])
+  @@index([expiryDate])
+  @@index([slug])
+}
+
+model Deal {
+  id              String        @id @default(cuid())
+  merchantId      String
+  categoryId      String?
+  title           String
+  slug            String        @unique
+  description     String
+  originalPrice   Decimal?      @db.Decimal(10, 2)
+  salePrice       Decimal?      @db.Decimal(10, 2)
+  discountValue   String        // e.g. "Save $120", "Up to 40% Off"
+  affiliateUrl    String
+  landingUrl      String
+  startDate       DateTime      @default(now())
+  expiryDate      DateTime?
+  status          CouponStatus  @default(ACTIVE)
+  isFeatured      Boolean       @default(false)
+  clickCount      Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  merchant        Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  category        Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  clicks          DealClick[]
+
+  @@index([merchantId])
+  @@index([status])
+  @@index([slug])
+}
+
+model AffiliateLink {
+  id              String        @id @default(cuid())
+  merchantId      String
+  networkName     String        // Impact, CJ, ShareASale, Rakuten, Awin, Direct
+  trackingUrl     String
+  destinationUrl  String
+  paramNotes      String?
+  status          String        @default("ACTIVE")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  merchant        Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId])
+}
+
+model CouponClick {
+  id              String          @id @default(cuid())
+  couponId        String
+  merchantId      String
+  ipHash          String?
+  userAgent       String?
+  deviceCategory  DeviceCategory  @default(DESKTOP)
+  referrer        String?
+  clickedAt       DateTime        @default(now())
+
+  coupon          Coupon          @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  merchant        Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@index([merchantId])
+  @@index([clickedAt])
+}
+
+model DealClick {
+  id              String          @id @default(cuid())
+  dealId          String
+  merchantId      String
+  ipHash          String?
+  userAgent       String?
+  deviceCategory  DeviceCategory  @default(DESKTOP)
+  referrer        String?
+  clickedAt       DateTime        @default(now())
+
+  deal            Deal            @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  merchant        Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+  @@index([merchantId])
+  @@index([clickedAt])
+}
+
+model CouponReport {
+  id              String        @id @default(cuid())
+  couponId        String
+  reason          ReportReason
+  userComment     String?
+  userEmail       String?
+  status          ReportStatus  @default(PENDING)
+  adminNote       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  coupon          Coupon        @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@index([status])
+}
+
+model VerificationLog {
+  id                  String             @id @default(cuid())
+  couponId            String
+  adminId             String
+  previousStatus      VerificationStatus
+  newStatus           VerificationStatus
+  testResult          String             // SUCCESS, FAILED, EXPIRED, DISCOUNT_MISMATCH
+  verificationMethod  String             // Browser checkout test, Merchant API check
+  notes               String?
+  testedAt            DateTime           @default(now())
+
+  coupon              Coupon             @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  admin               User               @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@index([adminId])
+  @@index([testedAt])
+}
+
+model BlogPost {
+  id              String        @id @default(cuid())
+  title           String
+  slug            String        @unique
+  excerpt         String
+  content         String        @db.Text
+  featuredImage   String?
+  authorId        String
+  category        String
+  isPublished     Boolean       @default(true)
+  metaTitle       String?
+  metaDescription String?
+  canonicalUrl    String?
+  readTimeMinutes Int           @default(5)
+  publishedAt     DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  author          User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([slug])
+  @@index([category])
+}
+
+model Faq {
+  id              String        @id @default(cuid())
+  question        String
+  answer          String
+  category        String        @default("General")
+  sortOrder       Int           @default(0)
+  isPublished     Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([category])
+}
+
+model NewsletterSubscriber {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  status          String        @default("SUBSCRIBED") // SUBSCRIBED, UNSUBSCRIBED
+  sourcePage      String?
+  subscribedAt    DateTime      @default(now())
+
+  @@index([email])
+}
+
+model AdminAuditLog {
+  id              String        @id @default(cuid())
+  adminId         String
+  action          String        // CREATE_COUPON, UPDATE_MERCHANT, VERIFY_COUPON, IMPORT_CSV, etc.
+  entityType      String        // Coupon, Merchant, Deal, Report
+  entityId        String
+  detailsJson     String?       // Details or diff
+  ipAddress       String?
+  createdAt       DateTime      @default(now())
+
+  admin           User          @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}

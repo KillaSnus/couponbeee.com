@@ -1,0 +1,8 @@
+{
+  "name": "CouponBeee",
+  "description": "Find verified coupons, promo codes, and real shopping deals across top stores with transparent testing records and editorial guides.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-display: 'Syne', var(--font-sans);
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #fafaf9;
+    color: #1c1917;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Custom coupon dashed cut-out styling */
+.coupon-ticket-border {
+  background-image: radial-gradient(circle at 0 50%, transparent 10px, white 10px),
+                    radial-gradient(circle at 100% 50%, transparent 10px, white 10px);
+}
